@@ -74,13 +74,45 @@ bool initWiFi() {
     return true;
 }
 
-void updateNTP() {
-    if(WiFi.status() == WL_CONNECTED) {
-        timeClient.update();
-        hour = timeClient.getHours() + 1;
-        minute = timeClient.getMinutes();
-        second = timeClient.getSeconds();
+
+int lastSunday(int year, int month) {
+    int daysInMonth[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)) {
+        daysInMonth[1] = 29;
     }
+    int lastDay = daysInMonth[month - 1];
+    for (int day = lastDay; day > lastDay - 7; day--) {
+        struct tm timeStruct = {0, 0, 0, day, month - 1, year - 1900};
+        time_t t = mktime(&timeStruct);
+        if (localtime(&t)->tm_wday == 0) { // Sunday
+            return day;
+        }
+    }
+    return lastDay;
+}
+
+bool isDaylightSavingTime(int year, int month, int day, int hour) {
+    int dstStart = lastSunday(year, 3);
+    int dstEnd = lastSunday(year, 10);
+    if ((month > 3 && month < 10) ||
+        (month == 3 && (day > dstStart || (day == dstStart && hour >= 2))) ||
+        (month == 10 && (day < dstEnd || (day == dstEnd && hour < 3)))) {
+        return true;
+    }
+    return false;
+}
+
+void updateNTP() {
+    if (WiFi.status() != WL_CONNECTED) return;
+
+    timeClient.update();
+    time_t rawTime = timeClient.getEpochTime();
+    struct tm timeInfo;
+    gmtime_r(&rawTime, &timeInfo);
+
+    hour = (timeClient.getHours() + (isDaylightSavingTime(timeInfo.tm_year + 1900, timeInfo.tm_mon + 1, timeInfo.tm_mday, timeInfo.tm_hour) ? 2 : 1)) % 24;
+    minute = timeClient.getMinutes();
+    second = timeClient.getSeconds();
 }
 
 void incrementTime();
@@ -126,19 +158,18 @@ void setup() {
 bool updateDisplay = false;
 
 void incrementTime() {
-    second++;
     lastUpdate++;
-    if(second > 59) {
+
+    if (++second == 60) {
         second = 0;
-        minute++;
+        if (++minute == 60) {
+            minute = 0;
+            if (++hour == 24) {
+                hour = 0;
+            }
+        }
     }
-    if(minute > 59) {
-        minute = 0;
-        hour++;
-    }
-    if(hour > 23) {
-        hour = 0;
-    }
+
     updateDisplay = true;
 }
 
